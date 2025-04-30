@@ -1,0 +1,35 @@
+//I had tot use cartesian as Neo4j does not have direct support for UTM to WGS84 conversion  and coordinates are expected to be in WGS84 (degrees). 
+//As we are working on a small area of the world, this should be ok.
+
+LOAD CSV WITH HEADERS FROM 'https://github.com/pauldechorgnat/cool-datasets/raw/master/ratp/stations.csv' AS row
+WITH row
+MERGE (s:Station {name_clean: row.nom_clean, line: row.ligne})
+SET s.sname = row.nom_gare,
+	s.location = point({x: toFloat(row.x), y: toFloat(row.y), crs: 'cartesian'}),
+	s.trafic_year = toInteger(row.Trafic),
+	s.city = row.Ville
+
+WITH s
+MATCH (s2:Station {name_clean: s.name_clean}) 
+WHERE s2.line <> s.line
+MERGE (s)-[:CORRESPONDANCE]->(s2)
+MERGE (s2)-[:CORRESPONDANCE]->(s)
+
+
+// Create the liaisons between the stations according to the line numbers
+LOAD CSV WITH HEADERS FROM 'https://github.com/pauldechorgnat/cool-datasets/raw/master/ratp/liaisons.csv' AS row
+MATCH (s1:Station {name_clean: row.start, line: row.ligne})
+MATCH (s2:Station {name_clean: row.stop, line: row.ligne})
+MERGE (s1)-[:LIAISON {ligne: row.ligne}]->(s2)
+MERGE (s2)-[:LIAISON {ligne: row.ligne}]->(s1)
+
+
+
+// Create the relations where distance < 1km so you can walk between stations
+MATCH (s1:Station), (s2:Station)
+WHERE s1 <> s2  // Ensure not comparing the same station node
+AND s1.name_clean <> s2.name_clean  // Ensure stations have different names
+WITH s1, s2, distance(s1.location, s2.location) AS dist //The function distance is integrated with 'point' coordinates and it's easier
+WHERE dist < 1000  // Distance must be less than 1000 meters (1 km)
+MERGE (s1)-[:A_PIED {distance: dist}]->(s2)
+MERGE (s2)-[:A_PIED {distance: dist}]->(s1)
